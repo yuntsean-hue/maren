@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>鹿港美食咖啡 & 停車導覽（Google 地圖版）</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome 圖標 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    /* 卡片選中高亮效果 */
+    .card-active {
+      border-color: #ea580c !important;
+      background-color: #fffaf5 !important;
+      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.15) !important;
+    }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-stone-100 text-stone-800 flex flex-col h-screen overflow-hidden">
+
+  <!-- 1. 頂部導航列 -->
+  <header class="bg-amber-800 text-amber-50 px-4 py-3 shadow-md z-20 flex-shrink-0 flex flex-wrap items-center justify-between gap-2">
+    <div class="flex items-center space-x-2">
+      <i class="fa-solid fa-map-location-dot text-2xl text-amber-300"></i>
+      <div>
+        <h1 class="text-base sm:text-lg font-bold tracking-wide">鹿港漫遊地圖助手</h1>
+        <p class="text-[11px] text-amber-200">Google 地圖瀏覽・在地小吃・停車指引</p>
+      </div>
+    </div>
+    
+    <!-- 定位控制按鈕 -->
+    <div class="flex items-center gap-2">
+      <button onclick="getUserLocation()" class="bg-amber-600 hover:bg-amber-500 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow transition">
+        <i class="fa-solid fa-crosshairs"></i>
+        <span>取得目前位置</span>
+      </button>
+      <button onclick="setSimulatedLocation()" title="若不在鹿港現場，可模擬鹿港天后宮定位" class="bg-amber-900/60 hover:bg-amber-900 text-amber-200 text-xs px-2.5 py-1.5 rounded-lg transition hidden sm:inline-block">
+        模擬鹿港定位
+      </button>
+    </div>
+  </header>
+
+  <!-- 2. 目前地址與定位提示列 -->
+  <div class="bg-amber-50 border-b border-amber-200 px-4 py-1.5 text-xs text-amber-900 flex items-center justify-between flex-shrink-0">
+    <div class="flex items-center gap-2 truncate">
+      <i class="fa-solid fa-location-dot text-amber-700"></i>
+      <span class="font-bold shrink-0">目前地址：</span>
+      <span id="currentAddressText" class="truncate text-stone-700 font-medium">尚未定位（點擊上方「取得目前位置」）</span>
+    </div>
+    <span id="distPrompt" class="text-[11px] text-stone-500 shrink-0 ml-2"></span>
+  </div>
+
+  <!-- 3. 主區域：左側卡片列表 / 右側 Google 地圖 -->
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+    <!-- 左側面板 (搜尋/標籤/清單) -->
+    <div class="w-full md:w-[420px] lg:w-[480px] bg-white border-r border-stone-200 flex flex-col h-[48vh] md:h-full z-10 shadow-lg md:shadow-none order-2 md:order-1">
+      
+      <!-- 搜尋與分類 -->
+      <div class="p-3 border-b border-stone-100 bg-stone-50/80 space-y-2">
+        <!-- 搜尋標的名稱 -->
+        <div class="relative">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-stone-400 text-sm"></i>
+          <input 
+            type="text" 
+            id="searchInput" 
+            placeholder="搜尋標的名稱（如：麵線糊、老龍師、凡咖啡、停車）..." 
+            class="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-600 bg-white shadow-sm"
+          >
+        </div>
+
+        <!-- 分類切換按鈕 -->
+        <div class="flex gap-1.5 overflow-x-auto pb-1 text-xs" id="filterTabs">
+          <button onclick="filterCategory('all')" data-cat="all" class="cat-btn px-3 py-1 rounded-md font-medium bg-amber-800 text-white whitespace-nowrap">全部</button>
+          <button onclick="filterCategory('food')" data-cat="food" class="cat-btn px-3 py-1 rounded-md font-medium bg-white text-stone-600 border border-stone-200 whitespace-nowrap">🍜 美食小吃</button>
+          <button onclick="filterCategory('cafe')" data-cat="cafe" class="cat-btn px-3 py-1 rounded-md font-medium bg-white text-stone-600 border border-stone-200 whitespace-nowrap">☕ 特色咖啡</button>
+          <button onclick="filterCategory('parking')" data-cat="parking" class="cat-btn px-3 py-1 rounded-md font-medium bg-white text-stone-600 border border-stone-200 whitespace-nowrap">🅿️ 方便停車</button>
+        </div>
+      </div>
+
+      <!-- 卡片列表捲動區 -->
+      <div id="placeList" class="flex-1 overflow-y-auto p-3 space-y-3">
+        <!-- 卡片由 JS 動態生成 -->
+      </div>
+    </div>
+
+    <!-- 右側：Google 地圖瀏覽器容器 -->
+    <div class="flex-1 h-[52vh] md:h-full order-1 md:order-2 relative bg-stone-200 flex flex-col">
+      
+      <!-- Google 地圖頂部資訊列 (顯示目前正在看的標的) -->
+      <div class="bg-white/95 backdrop-blur px-4 py-2 border-b border-stone-200 flex items-center justify-between text-xs z-10 shadow-sm">
+        <div class="flex items-center gap-2 truncate">
+          <span class="bg-amber-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold">地圖顯示</span>
+          <span id="currentViewingName" class="font-bold text-stone-900 truncate">鹿港天后宮商圈中心</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <a id="externalMapLink" href="https://maps.google.com/?q=鹿港天后宮" target="_blank" class="text-amber-800 hover:text-amber-900 font-medium flex items-center gap-1">
+            <i class="fa-solid fa-arrow-up-right-from-square"></i> 在 Google 地圖開啟
+          </a>
+        </div>
+      </div>
+
+      <!-- 嵌入式 Google 地圖 (無須 API 金鑰，支援所有裝置瀏覽) -->
+      <iframe 
+        id="googleMapIframe"
+        class="w-full flex-1 border-0"
+        src="https://maps.google.com/maps?q=24.0565,120.4335&hl=zh-TW&z=16&output=embed"
+        loading="lazy"
+        allowfullscreen>
+      </iframe>
+    </div>
+
+  </div>
+
+  <script>
+    // 鹿港標的地點資料庫（含經緯度、詳細介紹與專屬停車對策）
+    const places = [
+      // 停車場
+      {
+        id: 1,
+        category: 'parking',
+        name: '鹿港北區遊客中心停車場',
+        subName: '天后宮老街最熱門大停車場',
+        lat: 24.0601,
+        lng: 120.4323,
+        desc: '車位充裕的平面大型停車場，附公廁與遊客諮詢處，走路約 5 分鐘抵達天后宮商圈。',
+        tip: '假日尖峰中午容易排隊，建議 11:00 前抵達。',
+        address: '彰化縣鹿港鎮復興路488號'
+      },
+      {
+        id: 2,
+        category: 'parking',
+        name: '鹿港文武廟停車場',
+        subName: '南側最不易塞車首選',
+        lat: 24.0506,
+        lng: 120.4379,
+        desc: '公有平面停車場，青雲路兩側亦好停車。步行至第一市場約 7~8 分鐘。',
+        tip: '不想開進老街核心塞車的最佳首選，離場順暢。',
+        address: '彰化縣鹿港鎮青雲路2號'
+      },
+      {
+        id: 3,
+        category: 'parking',
+        name: '鹿港鎮立立體停車場',
+        subName: '老街中心遮陽立體車位',
+        lat: 24.0562,
+        lng: 120.4320,
+        desc: '不怕日曬雨淋的室內立體車庫，緊鄰桂花巷藝術村及公會堂。',
+        tip: '周邊巷弄窄小人多，開車請格外減速慢行。',
+        address: '彰化縣鹿港鎮民權路160巷1號'
+      },
+
+      // 在地必吃美食
+      {
+        id: 4,
+        category: 'food',
+        name: '蚯蚓龍山麵線糊',
+        subName: '在地排隊銅板老店',
+        lat: 24.0543,
+        lng: 120.4349,
+        desc: '勾芡厚薄適中，滿滿肉羹條與蛋花，加上烏醋與特製辣椒醬一絕！',
+        tip: '【停車推薦】停在文武廟停車場，步行約 3~4 分鐘。',
+        address: '彰化縣鹿港鎮美市街193號'
+      },
+      {
+        id: 5,
+        category: 'food',
+        name: '老龍師肉包 (三民本店)',
+        subName: '多汁鹹甜香菇鮮肉包',
+        lat: 24.0527,
+        lng: 120.4375,
+        desc: '肉質鮮嫩多汁，香菇餡帶甜味，麵皮鬆軟香甜，鹿港必買伴手禮。',
+        tip: '【停車推薦】三民路不易臨停，建議停文武廟停車場後走過來。',
+        address: '彰化縣鹿港鎮三民路117號'
+      },
+      {
+        id: 6,
+        category: 'food',
+        name: '王罔麵線糊',
+        subName: '傳承近百年柴魚香麵線',
+        lat: 24.0538,
+        lng: 120.4352,
+        desc: '創立於民國初年，湯頭帶清甜柴魚蝦米香氣，肉羹滑嫩軟口。',
+        tip: '【停車推薦】第一市場周邊，建議步行或騎 Ubike。',
+        address: '彰化縣鹿港鎮民族路268號'
+      },
+      {
+        id: 7,
+        category: 'food',
+        name: '楊記芋丸',
+        subName: '現蒸滿滿芋頭籤鮮肉丸',
+        lat: 24.0541,
+        lng: 120.4347,
+        desc: '新鮮芋頭刨籤包裹豬肉內餡，淋上特調蒜蓉甜辣醬超對味。',
+        tip: '【停車推薦】第一市場內，步行抵達。',
+        address: '彰化縣鹿港鎮大明路（第一市場內）'
+      },
+      {
+        id: 8,
+        category: 'food',
+        name: '阿振肉包',
+        subName: '百年傳承老店香菇肉包',
+        lat: 24.0549,
+        lng: 120.4348,
+        desc: '外皮Q彈富有嚼勁，內餡嚴選後腿肉，翡翠蔥花與桂圓黑糖饅頭也是招牌。',
+        tip: '【停車推薦】中山路周邊停車不易，建議停好車再步行前往。',
+        address: '彰化縣鹿港鎮中山路71號'
+      },
+
+      // 特色咖啡廳
+      {
+        id: 9,
+        category: 'cafe',
+        name: 'Fang Kofi 凡咖啡',
+        subName: '古樸紅磚老合院水池咖啡',
+        lat: 24.0592,
+        lng: 120.4308,
+        desc: '老古厝天井造景極美，招牌油條千層派與特色冷萃是下午茶絕選。',
+        tip: '【停車推薦】停北區遊客中心停車場，步行約 4 分鐘進入巷弄。',
+        address: '彰化縣鹿港鎮中山路74巷39號'
+      },
+      {
+        id: 10,
+        category: 'cafe',
+        name: 'LeeLi\'s',
+        subName: '文青工業風・在地食材創意早午餐',
+        lat: 24.0528,
+        lng: 120.4341,
+        desc: '將麵線、麵茶融入現代料理與甜點，環境寬敞舒適，打卡拍照首選。',
+        tip: '【停車推薦】建議停於文武廟停車場步行前往。',
+        address: '彰化縣鹿港鎮興化街40-1號'
+      },
+      {
+        id: 11,
+        category: 'cafe',
+        name: 'Skinny Cafe 瘦子咖啡 鹿港大街',
+        subName: '彰化名店自烘老宅手沖店',
+        lat: 24.0558,
+        lng: 120.4338,
+        desc: '進駐鹿港大街老屋，專業自家烘焙單品咖啡與濃郁肉桂捲極受歡迎。',
+        tip: '【停車推薦】停鹿港立體停車場後步行約 3 分鐘。',
+        address: '彰化縣鹿港鎮中山路163號'
+      },
+      {
+        id: 12,
+        category: 'cafe',
+        name: '米弎豆 Misato (老街文創店)',
+        subName: '現烤日式小判餅與濃抹茶',
+        lat: 24.0568,
+        lng: 120.4307,
+        desc: '九州女孩帶來的散步甜點，小判餅外脆內軟糯，老街散策必吃。',
+        tip: '【停車推薦】位處老街核心步道，建議車停外圍停車場。',
+        address: '彰化縣鹿港鎮民權路264號'
+      }
+    ];
+
+    // 全域狀態
+    let userCoords = null;
+    let currentCategory = 'all';
+    let searchQuery = '';
+    let selectedPlaceId = null;
+
+    // 計算經緯度直線距離 (公里)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function formatDistance(distKm) {
+      if (distKm < 1) {
+        return `${Math.round(distKm * 1000)} 公尺`;
+      }
+      return `${distKm.toFixed(1)} 公里`;
+    }
+
+    // 更新右側 Google 地圖的顯示標的
+    function updateGoogleMap(query, displayName, lat, lng) {
+      const iframe = document.getElementById('googleMapIframe');
+      const nameEl = document.getElementById('currentViewingName');
+      const extLink = document.getElementById('externalMapLink');
+
+      // 更新地圖標題與外部 App 導航連結
+      nameEl.textContent = displayName;
+      extLink.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(displayName + ' ' + (lat ? lat + ',' + lng : ''))}`;
+
+      // 使用 Google Maps 免金鑰標準 Embed 協定即時切換標的
+      const targetQuery = lat && lng ? `${lat},${lng}` : encodeURIComponent(query);
+      iframe.src = `https://maps.google.com/maps?q=${targetQuery}&hl=zh-TW&z=17&output=embed`;
+    }
+
+    // 取得使用者 GPS 與解析實體地址
+    function getUserLocation() {
+      const addrEl = document.getElementById('currentAddressText');
+      if (!navigator.geolocation) {
+        alert("您的瀏覽器或裝置不支援 GPS 定位。");
+        return;
+      }
+
+      addrEl.textContent = "正在取得 GPS 定位中...";
+
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          userCoords = { lat, lng };
+
+          // 反向地理編碼取得中文門牌地址
+          addrEl.textContent = "解析地址中...";
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+              headers: { 'Accept-Language': 'zh-TW' }
+            });
+            const data = await res.json();
+            addrEl.textContent = data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          } catch(e) {
+            addrEl.textContent = `經緯度座標：${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+          }
+
+          document.getElementById('distPrompt').textContent = "（已依直線距離重新排序）";
+
+          // 切換 Google 地圖至目前位置
+          updateGoogleMap(`${lat},${lng}`, "📍 您的目前位置", lat, lng);
+          renderCards();
+        },
+        (error) => {
+          addrEl.textContent = "無法取得定位，請確認已開啟位置存取權限。";
+          alert("無法取得位置，請確認瀏覽器是否開啟「位置存取權限」或點擊「模擬鹿港定位」。");
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+
+    // 模擬鹿港天后宮前定位（方便不在現場測試）
+    function setSimulatedLocation() {
+      const lat = 24.0594, lng = 120.4314;
+      userCoords = { lat, lng };
+      document.getElementById('currentAddressText').textContent = "彰化縣鹿港鎮中山路430號 (鹿港天后宮前模擬)";
+      document.getElementById('distPrompt').textContent = "（已依距離排序）";
+      updateGoogleMap(`${lat},${lng}`, "📍 鹿港天后宮 (模擬位置)", lat, lng);
+      renderCards();
+    }
+
+    // 渲染卡片清單
+    function renderCards() {
+      const listEl = document.getElementById('placeList');
+      listEl.innerHTML = '';
+
+      // 1. 搜尋與分類過濾
+      let filtered = places.filter(item => {
+        const matchesCategory = (currentCategory === 'all' || item.category === currentCategory);
+        const matchesSearch = 
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.subName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          item.address.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesCategory && matchesSearch;
+      });
+
+      // 2. 若有定位，依距離排序
+      if (userCoords) {
+        filtered.forEach(p => {
+          p.distance = calculateDistance(userCoords.lat, userCoords.lng, p.lat, p.lng);
+        });
+        filtered.sort((a, b) => a.distance - b.distance);
+      }
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="text-center py-12 text-stone-400">
+            <i class="fa-solid fa-magnifying-glass text-3xl mb-2"></i>
+            <p class="text-sm">找不到符合「${searchQuery}」的標的名稱</p>
+          </div>
+        `;
+        return;
+      }
+
+      // 3. 生成卡片 HTML
+      filtered.forEach(item => {
+        let badgeColor = 'bg-orange-100 text-orange-800', badgeText = '必吃美食';
+        if (item.category === 'cafe') {
+          badgeColor = 'bg-amber-100 text-amber-800'; badgeText = '風格咖啡';
+        } else if (item.category === 'parking') {
+          badgeColor = 'bg-blue-100 text-blue-800'; badgeText = '方便停車';
+        }
+
+        const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.name + ' ' + item.address)}`;
+
+        let distBadge = '';
+        if (item.distance !== undefined) {
+          distBadge = `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+            <i class="fa-solid fa-person-walking"></i> 距離約 ${formatDistance(item.distance)}
+          </span>`;
+        }
+
+        const isActive = (selectedPlaceId === item.id) ? 'card-active' : '';
+
+        const card = document.createElement('div');
+        card.className = `bg-white p-3.5 rounded-xl border border-stone-200/90 shadow-sm hover:border-amber-400 hover:shadow-md transition cursor-pointer ${isActive}`;
+        
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-1 mb-1.5">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded-md ${badgeColor}">${badgeText}</span>
+              ${distBadge}
+            </div>
+            <a href="${navUrl}" target="_blank" onclick="event.stopPropagation()" class="text-[11px] text-amber-700 hover:underline flex items-center gap-1 font-bold">
+              <i class="fa-solid fa-diamond-turn-right text-amber-600"></i> Google 導航
+            </a>
+          </div>
+
+          <h3 class="font-bold text-stone-900 text-sm hover:text-amber-800 flex items-center justify-between">
+            <span>${item.name}</span>
+            <span class="text-[11px] text-amber-600 font-normal group-hover:underline">看地圖 ➔</span>
+          </h3>
+          <p class="text-xs text-stone-500 font-medium mb-1.5">${item.subName}</p>
+          <p class="text-xs text-stone-600 mb-2 leading-relaxed">${item.desc}</p>
+          
+          <div class="bg-stone-50 p-2 rounded text-[11px] text-stone-600 flex items-start gap-1 mb-2 border border-stone-100">
+            <i class="fa-solid fa-car-side mt-0.5 text-stone-400 shrink-0"></i>
+            <span>${item.tip}</span>
+          </div>
+
+          <div class="text-[11px] text-stone-400 flex items-center gap-1 truncate">
+            <i class="fa-solid fa-location-dot"></i>
+            <span class="truncate">${item.address}</span>
+          </div>
+        `;
+
+        // 點選卡片：在地圖上定位該店家
+        card.addEventListener('click', () => {
+          selectedPlaceId = item.id;
+          updateGoogleMap(item.name + ' ' + item.address, item.name, item.lat, item.lng);
+          renderCards(); // 重新觸發高亮選中卡片
+        });
+
+        listEl.appendChild(card);
+      });
+    }
+
+    // 分類篩選
+    function filterCategory(cat) {
+      currentCategory = cat;
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        if(btn.dataset.cat === cat) {
+          btn.className = 'cat-btn px-3 py-1 rounded-md font-medium bg-amber-800 text-white whitespace-nowrap';
+        } else {
+          btn.className = 'cat-btn px-3 py-1 rounded-md font-medium bg-white text-stone-600 border border-stone-200 whitespace-nowrap';
+        }
+      });
+      renderCards();
+    }
+
+    // 標的名稱關鍵字搜尋
+    document.getElementById('searchInput').addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      renderCards();
+    });
+
+    // 頁面初次載入
+    window.addEventListener('DOMContentLoaded', () => {
+      renderCards();
+    });
+  </script>
+</body>
+</html>
